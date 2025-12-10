@@ -1,53 +1,66 @@
-const express = require('express');
-const fetch = require('node-fetch');
-const cors = require('cors');
+// server.js
+const express = require("express");
+const fetch = require("node-fetch");
+const cors = require("cors");
 
 const app = express();
 
-// ✅ Abrir CORS para todos
+// ✅ CORS abierto
 app.use(cors());
 
-// ✅ Permitir recibir XML SOAP crudo
-app.use(express.text({ type: '*/*' }));
+// ✅ Recibir body crudo (XML, JSON, texto, etc.)
+app.use(express.text({ type: "*/*" }));
 
-// 🔁 PROXY SOAP
-app.post('/proxy', async (req, res) => {
-
-    try {
-
-        const targetUrl = req.query.url;
-
-        if (!targetUrl) {
-            return res.status(400).send("Falta parámetro ?url=");
-        }
-
-        const soapAction = req.headers["soapaction"] || "";
-
-        const response = await fetch(targetUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction": soapAction
-            },
-            body: req.body
-        });
-
-        const data = await response.text();
-
-        res.set("Content-Type", "text/xml");
-        res.send(data);
-
-    } catch (error) {
-
-        console.error("❌ Error Proxy:", error);
-        res.status(500).send("ERROR PROXY SOAP");
-    }
-
+// Ruta de prueba opcional
+app.get("/", (req, res) => {
+  res.send("EasyCar proxy funcionando 😎");
 });
 
-// 🚀 ARRANQUE DEL SERVIDOR
-const PORT = 3000;
+// 🔁 PROXY GENÉRICO PARA SOAP Y REST
+app.all("/proxy", async (req, res) => {
+  try {
+    const targetUrl = req.query.url;
+
+    if (!targetUrl) {
+      return res.status(400).send("Falta parámetro ?url=");
+    }
+
+    const method = req.method;
+
+    // Copiamos headers y limpiamos algunos que molestan
+    const headers = { ...req.headers };
+    delete headers.host;
+    delete headers.origin;
+    delete headers.referer;
+    delete headers["content-length"];
+
+    // Para GET/HEAD no hay body
+    const body = ["GET", "HEAD"].includes(method) ? undefined : req.body;
+
+    const response = await fetch(targetUrl, {
+      method,
+      headers,
+      body,
+    });
+
+    // Pasamos status + headers tal cual
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "content-encoding") return;
+      res.setHeader(key, value);
+    });
+
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error("❌ Error Proxy:", error);
+    res.status(500).send("ERROR PROXY");
+  }
+});
+
+// 🚀 ARRANQUE DEL SERVIDOR (Render usa process.env.PORT)
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`✅ SOAP PROXY ACTIVO en http://localhost:${PORT}`);
+  console.log(`✅ PROXY ACTIVO en puerto ${PORT}`);
 });
